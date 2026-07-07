@@ -1,0 +1,51 @@
+EXPLORATORY DATA ANALYSIS SUMMARY
+============================================================
+
+Rows: 2000
+Repositories: 10
+Merge commits: 162
+Missing timing values: 416
+
+SKEWNESS
+------------------------------------------------------------
+test_files_changed             24.504800
+deletions                      20.913953
+additions                      18.699187
+total_changes                  18.425342
+source_files_changed           11.961607
+message_word_count             10.730797
+hours_since_previous_commit    10.434709
+message_length                  9.373039
+doc_files_changed               8.570751
+config_files_changed            6.453739
+files_changed                   6.166258
+
+MEDIANS BY REPOSITORY
+------------------------------------------------------------
+                           files_changed  total_changes  message_length
+repository                                                             
+django/django                        2.0           26.5           108.5
+encode/httpx                         1.0            8.0           105.5
+fastapi/fastapi                      1.0            4.0            34.5
+keras-team/keras                     2.0           47.5           222.0
+pallets/flask                        3.0           21.0            29.0
+pandas-dev/pandas                    3.0           29.5           138.5
+psf/requests                         1.0            8.0            70.0
+pytest-dev/pytest                    2.0           28.0           145.0
+scikit-learn/scikit-learn            2.0           35.0            96.0
+tiangolo/sqlmodel                    1.0            2.0            33.0
+
+CORRELATION MATRIX
+------------------------------------------------------------
+                             files_changed  additions  deletions  total_changes  source_files_changed  test_files_changed  doc_files_changed  config_files_changed  message_length  message_word_count  hours_since_previous_commit
+files_changed                     1.000000   0.254913   0.275925       0.283053              0.392109            0.205264           0.821920              0.188154       -0.003461           -0.005227                    -0.029307
+additions                         0.254913   1.000000   0.664945       0.966113              0.198601            0.099122           0.106683              0.127130        0.031320            0.034374                     0.000921
+deletions                         0.275925   0.664945   1.000000       0.835200              0.145030            0.023550           0.172472              0.105011       -0.012056           -0.015167                    -0.002633
+total_changes                     0.283053   0.966113   0.835200       1.000000              0.196354            0.081123           0.138157              0.129898        0.018895            0.020068                    -0.000222
+source_files_changed              0.392109   0.198601   0.145030       0.196354              1.000000            0.091046          -0.006903              0.028719        0.039611            0.076436                     0.001346
+test_files_changed                0.205264   0.099122   0.023550       0.081123              0.091046            1.000000          -0.022518              0.006232        0.014083            0.025907                    -0.030698
+doc_files_changed                 0.821920   0.106683   0.172472       0.138157             -0.006903           -0.022518           1.000000             -0.014201       -0.018044           -0.030124                    -0.033213
+config_files_changed              0.188154   0.127130   0.105011       0.129898              0.028719            0.006232          -0.014201              1.000000        0.001000           -0.043482                     0.053877
+message_length                   -0.003461   0.031320  -0.012056       0.018895              0.039611            0.014083          -0.018044              0.001000        1.000000            0.946035                     0.009159
+message_word_count               -0.005227   0.034374  -0.015167       0.020068              0.076436            0.025907          -0.030124             -0.043482        0.946035            1.000000                    -0.001236
+hours_since_previous_commit      -0.029307   0.000921  -0.002633      -0.000222              0.001346           -0.030698          -0.033213              0.053877        0.009159           -0.001236                     1.000000

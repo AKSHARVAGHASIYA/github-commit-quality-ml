@@ -1,0 +1,22 @@
+DATASET CLEANING REPORT
+==================================================
+
+Original rows: 2000
+Final rows: 2000
+Duplicate commits removed: 0
+Missing authors replaced: 6
+Missing messages replaced: 0
+Invalid timing values converted to missing: 366
+Inconsistent total_changes rows: 0
+
+INVALID NUMERIC VALUES
+files_changed: 0
+additions: 0
+deletions: 0
+total_changes: 0
+source_files_changed: 0
+test_files_changed: 0
+doc_files_changed: 0
+config_files_changed: 0
+message_length: 0
+message_word_count: 0

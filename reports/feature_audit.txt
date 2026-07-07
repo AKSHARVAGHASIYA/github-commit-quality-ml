@@ -1,0 +1,99 @@
+FINAL FEATURE AUDIT
+======================================================================
+
+Rows: 2000
+Columns: 18
+
+MISSING EXPECTED COLUMNS
+----------------------------------------------------------------------
+[]
+
+UNEXPECTED COLUMNS
+----------------------------------------------------------------------
+['commit_date']
+
+MISSING VALUES
+----------------------------------------------------------------------
+hours_since_previous_commit    416
+sha                              0
+is_merge_commit                  0
+message_word_count               0
+message_length                   0
+config_files_changed             0
+doc_files_changed                0
+test_files_changed               0
+source_files_changed             0
+repository                       0
+deletions                        0
+additions                        0
+files_changed                    0
+commit_date                      0
+commit_message                   0
+author_name                      0
+author_login                     0
+total_changes                    0
+
+UNIQUE VALUES
+----------------------------------------------------------------------
+is_merge_commit                   2
+repository                       10
+test_files_changed               14
+config_files_changed             16
+doc_files_changed                27
+source_files_changed             27
+files_changed                    49
+message_word_count              134
+deletions                       199
+additions                       293
+total_changes                   343
+author_login                    344
+author_name                     355
+message_length                  476
+hours_since_previous_commit    1450
+commit_message                 1760
+commit_date                    1998
+sha                            2000
+
+SKEWNESS
+----------------------------------------------------------------------
+test_files_changed             24.504800
+deletions                      20.913953
+additions                      18.699187
+total_changes                  18.425342
+source_files_changed           11.961607
+message_word_count             10.730797
+hours_since_previous_commit    10.434709
+message_length                  9.373039
+doc_files_changed               8.570751
+config_files_changed            6.453739
+files_changed                   6.166258
+
+HIGH CORRELATIONS >= 0.80
+----------------------------------------------------------------------
+additions <-> total_changes: 0.9661
+message_length <-> message_word_count: 0.9460
+deletions <-> total_changes: 0.8352
+files_changed <-> doc_files_changed: 0.8219
+
+OUTLIER COUNTS USING IQR
+----------------------------------------------------------------------
+files_changed: 222 outliers (bounds -2.0000, 6.0000)
+additions: 273 outliers (bounds -64.0000, 112.0000)
+deletions: 302 outliers (bounds -20.0000, 36.0000)
+total_changes: 264 outliers (bounds -90.5000, 161.5000)
+source_files_changed: 225 outliers (bounds -1.5000, 2.5000)
+test_files_changed: 381 outliers (bounds 0.0000, 0.0000)
+doc_files_changed: 121 outliers (bounds -1.5000, 2.5000)
+config_files_changed: 365 outliers (bounds 0.0000, 0.0000)
+message_length: 252 outliers (bounds -168.0000, 392.0000)
+message_word_count: 229 outliers (bounds -13.5000, 38.5000)
+hours_since_previous_commit: 191 outliers (bounds -171.5958, 286.5759)
+
+RECOMMENDATIONS
+----------------------------------------------------------------------
+1. Exclude repository, SHA, author_login, and author_name from direct model features.
+2. Keep commit_message for NLP/text-derived features.
+3. Do not automatically delete statistical outliers; use robust preprocessing and log transformations.
+4. Consider log1p transformation for highly skewed non-negative features: test_files_changed, deletions, additions, total_changes, source_files_changed, message_word_count, hours_since_previous_commit, message_length, doc_files_changed, config_files_changed, files_changed
+5. Review redundant highly correlated features before final model training.
+6. Evaluate with a repository-grouped split in addition to a random stratified split.
