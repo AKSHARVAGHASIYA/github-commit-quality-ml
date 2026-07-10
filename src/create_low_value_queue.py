@@ -3,12 +3,14 @@ from pathlib import Path
 import pandas as pd
 
 
-POOL_FILE = Path("data/labeling_pool.csv")
+POOL_FILE = Path("data/enriched_labeling_pool.csv")
 LABELED_FILE = Path("data/labeled_commits.csv")
 OUTPUT_FILE = Path("data/low_value_queue.csv")
 
 QUEUE_SIZE = 100
 
+MAX_PER_REPOSITORY = 15
+MAX_PER_MESSAGE = 5
 
 def load_data():
     pool_df = pd.read_csv(POOL_FILE)
@@ -21,107 +23,304 @@ def load_data():
     return pool_df, labeled_df
 
 
-def remove_already_labeled(pool_df, labeled_df):
+def remove_already_reviewed(pool_df, labeled_df):
+    """
+    Remove every manually reviewed commit regardless of whether its label is
+    USEFUL, UNCERTAIN, or LOW_VALUE.
+    """
     if labeled_df.empty:
         return pool_df.copy()
 
-    labeled_keys = set(
+    reviewed_keys = set(
         zip(
             labeled_df["repository"].astype(str),
             labeled_df["sha"].astype(str),
         )
     )
 
-    mask = pool_df.apply(
-        lambda row: (
-            str(row["repository"]),
-            str(row["sha"]),
-        ) not in labeled_keys,
-        axis=1,
+    keys = list(
+        zip(
+            pool_df["repository"].astype(str),
+            pool_df["sha"].astype(str),
+        )
     )
 
-    return pool_df[mask].copy()
+    mask = [
+        key not in reviewed_keys
+        for key in keys
+    ]
+
+    return pool_df.loc[mask].copy()
+
+
+def numeric_series(df, column):
+    if column not in df.columns:
+        return pd.Series(0, index=df.index, dtype="float64")
+
+    return pd.to_numeric(
+        df[column],
+        errors="coerce",
+    ).fillna(0)
+
+
+def text_series(df, column):
+    if column not in df.columns:
+        return pd.Series("", index=df.index, dtype="object")
+
+    return df[column].fillna("").astype(str)
 
 
 def calculate_candidate_score(df):
+    """
+    Rank commits that are plausible LOW_VALUE candidates.
+
+    Stronger evidence comes from enriched diff information:
+    changed filenames, patch text, lockfiles, generated files, and whether
+    actual source/test code was changed.
+
+    The score is only for queue prioritization. It is not an automatic label.
+    """
     df = df.copy()
 
-    message = df["commit_message"].fillna("").astype(str)
-    message_lower = message.str.lower()
+    message = text_series(df, "commit_message").str.lower().str.strip()
+    filenames = text_series(df, "changed_filenames").str.lower()
+    patches = text_series(df, "patches").str.lower()
+
+    total_changes = numeric_series(df, "total_changes")
+    files_changed = numeric_series(df, "files_changed")
+    message_word_count = numeric_series(df, "message_word_count")
+
+    source_files = numeric_series(df, "source_files_changed")
+    test_files = numeric_series(df, "test_files_changed")
+    doc_files = numeric_series(df, "doc_files_changed")
+    config_files = numeric_series(df, "config_files_changed")
+
+    lockfiles = numeric_series(df, "lockfile_count")
+    generated_files = numeric_series(df, "generated_file_count")
+    api_files = numeric_series(df, "api_files_count")
+    files_with_patches = numeric_series(df, "patch_available_count")
 
     df["candidate_score"] = 0
+    df["candidate_reasons"] = ""
 
-    # Very short commit messages.
-    df.loc[
-        df["message_word_count"] <= 3,
-        "candidate_score",
-    ] += 3
+    def add_score(mask, score, reason):
+        df.loc[mask, "candidate_score"] += score
 
-    # Tiny commits.
-    df.loc[
-        df["total_changes"] <= 2,
-        "candidate_score",
-    ] += 3
+        current = df.loc[mask, "candidate_reasons"]
 
-    df.loc[
-        df["files_changed"] == 1,
-        "candidate_score",
-    ] += 1
+        df.loc[mask, "candidate_reasons"] = current.where(
+            current == "",
+            current + " | ",
+        ) + reason
 
-    # Common low-information messages.
-    low_information_patterns = (
+    # ---------------------------------------------------------
+    # 1. Strong enriched diff evidence
+    # ---------------------------------------------------------
+
+    lockfile_only = (
+        (lockfiles > 0)
+        & (source_files == 0)
+        & (test_files == 0)
+        & (doc_files == 0)
+    )
+
+    add_score(
+        lockfile_only,
+        8,
+        "lockfile-only change",
+    )
+
+    generated_only = (
+        (generated_files > 0)
+        & (source_files == 0)
+        & (test_files == 0)
+    )
+
+    add_score(
+        generated_only,
+        7,
+        "generated-files-only change",
+    )
+
+    whitespace_patch = patches.str.contains(
+        r"whitespace|trailing space|indentation|reformat",
+        regex=True,
+        na=False,
+    )
+
+    add_score(
+        whitespace_patch,
+        4,
+        "patch suggests formatting/whitespace change",
+    )
+
+    metadata_filename = filenames.str.contains(
+        r"\.gitignore|\.gitattributes|"
+        r"\.editorconfig|\.prettierignore|"
+        r"\.eslintignore",
+        regex=True,
+        na=False,
+    )
+
+    metadata_only = (
+        metadata_filename
+        & (files_changed <= 2)
+        & (source_files == 0)
+        & (test_files == 0)
+    )
+
+    add_score(
+        metadata_only,
+        5,
+        "small repository-metadata change",
+    )
+
+    # ---------------------------------------------------------
+    # 2. Small non-code changes
+    # ---------------------------------------------------------
+
+    tiny_non_code = (
+        (total_changes <= 5)
+        & (source_files == 0)
+        & (test_files == 0)
+        & (api_files == 0)
+    )
+
+    add_score(
+        tiny_non_code,
+        5,
+        "tiny change with no source/test/API files",
+    )
+
+    docs_only_small = (
+        (doc_files > 0)
+        & (source_files == 0)
+        & (test_files == 0)
+        & (config_files == 0)
+        & (total_changes <= 10)
+    )
+
+    add_score(
+        docs_only_small,
+        4,
+        "small documentation-only change",
+    )
+
+    config_only_small = (
+        (config_files > 0)
+        & (source_files == 0)
+        & (test_files == 0)
+        & (doc_files == 0)
+        & (total_changes <= 10)
+    )
+
+    add_score(
+        config_only_small,
+        4,
+        "small configuration-only change",
+    )
+
+    # ---------------------------------------------------------
+    # 3. Diff availability and size evidence
+    # ---------------------------------------------------------
+
+    tiny_patch_commit = (
+        (files_with_patches > 0)
+        & (files_changed <= 2)
+        & (total_changes <= 4)
+    )
+
+    add_score(
+        tiny_patch_commit,
+        3,
+        "tiny commit with inspectable patch",
+    )
+
+    single_file_tiny = (
+        (files_changed == 1)
+        & (total_changes <= 3)
+    )
+
+    add_score(
+        single_file_tiny,
+        3,
+        "single-file tiny change",
+    )
+
+    # ---------------------------------------------------------
+    # 4. Commit-message evidence
+    # ---------------------------------------------------------
+
+    exact_low_information_message = message.str.match(
         r"^(fix|fixed|update|updated|change|changed|"
         r"typo|format|formatting|cleanup|clean up|"
         r"wip|test|testing|misc|minor|small change|"
-        r"remove|removed|rename|renamed|bump)$"
+        r"remove|removed|rename|renamed|bump)$",
+        na=False,
     )
 
-    df.loc[
-        message_lower.str.strip().str.match(
-            low_information_patterns,
-            na=False,
-        ),
-        "candidate_score",
-    ] += 5
-
-    # Explicit WIP / typo / formatting indicators.
-    df.loc[
-        message_lower.str.contains(
-            r"\bwip\b|\btypo\b|\bformatting\b|"
-            r"\bwhitespace\b|\bminor cleanup\b",
-            regex=True,
-            na=False,
-        ),
-        "candidate_score",
-    ] += 3
-
-    # Documentation-only tiny changes.
-    documentation_only = (
-        (df["doc_files_changed"] > 0)
-        & (df["source_files_changed"] == 0)
-        & (df["test_files_changed"] == 0)
-        & (df["config_files_changed"] == 0)
-        & (df["total_changes"] <= 5)
+    add_score(
+        exact_low_information_message,
+        4,
+        "low-information commit message",
     )
 
-    df.loc[
-        documentation_only,
-        "candidate_score",
-    ] += 2
-
-    # Configuration-only tiny changes.
-    configuration_only = (
-        (df["config_files_changed"] > 0)
-        & (df["source_files_changed"] == 0)
-        & (df["test_files_changed"] == 0)
-        & (df["doc_files_changed"] == 0)
-        & (df["total_changes"] <= 5)
+    explicit_low_value_message = message.str.contains(
+        r"\bwip\b|\btypo\b|\bwhitespace\b|"
+        r"\bformatting\b|\breformat\b|"
+        r"\bminor cleanup\b|\bversion bump\b|"
+        r"\bdependency bump\b|\bbump version\b",
+        regex=True,
+        na=False,
     )
 
-    df.loc[
-        configuration_only,
-        "candidate_score",
-    ] += 2
+    add_score(
+        explicit_low_value_message,
+        3,
+        "message suggests mechanical/minor change",
+    )
+
+    very_short_message = message_word_count <= 3
+
+    add_score(
+        very_short_message,
+        1,
+        "very short commit message",
+    )
+
+    # ---------------------------------------------------------
+    # 5. Penalize commits with stronger engineering evidence
+    # ---------------------------------------------------------
+
+    substantial_source_change = (
+        (source_files > 0)
+        & (total_changes >= 20)
+    )
+
+    add_score(
+        substantial_source_change,
+        -5,
+        "substantial source-code change",
+    )
+
+    test_and_source_change = (
+        (source_files > 0)
+        & (test_files > 0)
+    )
+
+    add_score(
+        test_and_source_change,
+        -4,
+        "source and tests changed together",
+    )
+
+    large_patch = total_changes >= 100
+
+    add_score(
+        large_patch,
+        -4,
+        "large change",
+    )
 
     return df
 
@@ -140,7 +339,56 @@ def create_queue(df):
         ascending=[False, True, True],
     )
 
+    # Normalize messages so repeated commit patterns
+    # cannot dominate the manual-labeling queue.
+    candidates["normalized_message"] = (
+        candidates["commit_message"]
+        .fillna("")
+        .astype(str)
+        .str.lower()
+        .str.strip()
+        .str.replace(r"\s+", " ", regex=True)
+    )
+
+    # Cap repeated commit-message patterns.
+    candidates = (
+        candidates
+        .groupby(
+            "normalized_message",
+            group_keys=False,
+            sort=False,
+        )
+        .head(MAX_PER_MESSAGE)
+    )
+
+    # Cap candidates from any single repository.
+    candidates = (
+        candidates
+        .groupby(
+            "repository",
+            group_keys=False,
+            sort=False,
+        )
+        .head(MAX_PER_REPOSITORY)
+    )
+
+    # Restore global candidate priority.
+    candidates = candidates.sort_values(
+        by=[
+            "candidate_score",
+            "total_changes",
+            "message_word_count",
+        ],
+        ascending=[False, True, True],
+    )
+
     candidates = candidates.head(QUEUE_SIZE)
+
+    # Internal queue-generation column is not needed
+    # during manual labeling.
+    candidates = candidates.drop(
+        columns=["normalized_message"]
+    )
 
     return candidates
 
@@ -182,6 +430,7 @@ def print_summary(queue_df):
         "commit_message",
         "total_changes",
         "candidate_score",
+        "candidate_reasons",
     ]
 
     print(
@@ -190,24 +439,22 @@ def print_summary(queue_df):
         .to_string(index=False)
     )
 
-    print(
-        f"\nQueue saved to {OUTPUT_FILE}"
-    )
+    print(f"\nQueue saved to {OUTPUT_FILE}")
 
 
 def main():
     pool_df, labeled_df = load_data()
 
-    print(f"Loaded pool commits: {len(pool_df)}")
-    print(f"Loaded labeled commits: {len(labeled_df)}")
+    print(f"Loaded enriched pool commits: {len(pool_df)}")
+    print(f"Loaded reviewed commits: {len(labeled_df)}")
 
-    unlabeled_df = remove_already_labeled(
+    unlabeled_df = remove_already_reviewed(
         pool_df,
         labeled_df,
     )
 
     print(
-        f"Remaining unlabeled pool commits: "
+        f"Remaining unreviewed pool commits: "
         f"{len(unlabeled_df)}"
     )
 

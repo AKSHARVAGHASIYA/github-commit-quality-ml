@@ -19,27 +19,33 @@ VALID_LABELS = {
 }
 
 
-def load_pool(queue_mode=None):
-    if queue_mode == "low-value":
-        input_file = LOW_VALUE_QUEUE_FILE
-        queue_name = "low-value candidate queue"
-    else:
-        input_file = POOL_FILE
-        queue_name = "labeling pool"
+def load_pool(queue_name=None):
+    if queue_name == "low-value":
+        pool_file = LOW_VALUE_QUEUE_FILE
 
-    if not input_file.exists():
-        raise FileNotFoundError(
-            f"{input_file} not found."
+        print(
+            "Loaded low-value candidate queue:",
+            end=" ",
         )
 
-    pool_df = pd.read_csv(input_file)
+    else:
+        pool_file = ENRICHED_POOL_FILE
 
-    print(
-        f"Loaded {queue_name}: "
-        f"{len(pool_df)} commits."
-    )
+        print(
+            "Loaded enriched labeling pool:",
+            end=" ",
+        )
 
-    return pool_df
+    if not pool_file.exists():
+        raise FileNotFoundError(
+            f"Pool file not found: {pool_file}"
+        )
+
+    df = pd.read_csv(pool_file)
+
+    print(f"{len(df)} commits.")
+
+    return df
 
 
 def load_existing_labels():
@@ -201,6 +207,9 @@ def print_commit(row, pool_position, pool_size, reviewed_count):
         f"Hours since previous commit: "
         f"{timing}"
     )
+    
+    if ( "file_summary" in row.index or "patch_summary" in row.index ):
+        display_enriched_evidence(row)
 
     print("\nLABEL OPTIONS")
     print("[u] USEFUL")
@@ -208,6 +217,71 @@ def print_commit(row, pool_position, pool_size, reviewed_count):
     print("[?] UNCERTAIN")
     print("[s] SKIP FOR NOW")
     print("[q] SAVE AND QUIT")
+
+def safe_text(value):
+    if pd.isna(value):
+        return ""
+
+    return str(value)
+
+
+def display_enriched_evidence(row):
+    print("\nCHANGED FILES")
+    print("-" * 75)
+
+    file_summary = safe_text(
+        row.get("file_summary", "")
+    )
+
+    if file_summary:
+        print(file_summary[:MAX_FILE_SUMMARY_CHARS])
+
+        if len(file_summary) > MAX_FILE_SUMMARY_CHARS:
+            print("\n[File summary truncated]")
+
+    else:
+        print("No file summary available.")
+
+    print("\nPATCH PREVIEW")
+    print("-" * 75)
+
+    patch_summary = safe_text(
+        row.get("patch_summary", "")
+    )
+
+    if patch_summary:
+        print(patch_summary[:MAX_PATCH_PREVIEW_CHARS])
+
+        if len(patch_summary) > MAX_PATCH_PREVIEW_CHARS:
+            print("\n[Patch preview truncated]")
+
+    else:
+        print("No patch data available.")
+
+    print("\nENRICHMENT SUMMARY")
+    print("-" * 75)
+
+    print(
+        f"API files count:         "
+        f"{row.get('api_files_count', 'Unknown')}"
+    )
+
+    print(
+        f"Files with patches:      "
+        f"{row.get('patch_available_count', 'Unknown')}"
+    )
+
+    print(
+        f"Lockfiles changed:       "
+        f"{row.get('lockfile_count', 'Unknown')}"
+    )
+
+    print(
+        f"Generated files changed: "
+        f"{row.get('generated_file_count', 'Unknown')}"
+    )
+
+
 
 def main():
     parser = argparse.ArgumentParser(
