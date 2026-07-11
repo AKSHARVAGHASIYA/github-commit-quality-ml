@@ -110,8 +110,25 @@ def get_commit_details(owner, repo, sha):
 
 
 def classify_file(filename):
-
     filename_lower = filename.lower()
+
+    base_name = filename_lower.rsplit("/", 1)[-1]
+
+    dependency_config_files = {
+        "requirements.txt",
+        "requirements-dev.txt",
+        "requirements-test.txt",
+        "requirements-docs.txt",
+        "constraints.txt",
+        "pyproject.toml",
+        "setup.cfg",
+        "tox.ini",
+        "pipfile",
+        "poetry.lock",
+    }
+
+    if base_name in dependency_config_files:
+        return "config"
 
     source_extensions = (
         ".py",
@@ -134,7 +151,9 @@ def classify_file(filename):
     )
 
     if (
-        "/test/" in filename_lower
+        filename_lower.startswith("test/")
+        or filename_lower.startswith("tests/")
+        or "/test/" in filename_lower
         or "/tests/" in filename_lower
         or filename_lower.startswith("test_")
         or filename_lower.endswith("_test.py")
